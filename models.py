@@ -4,7 +4,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, List, Literal, Optional, get_args, get_origin
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 # ─── LLM output coercion ─────────────────────────────────────────────────────
@@ -97,6 +97,14 @@ class LLMOutput(BaseModel):
                     data[field_name] = True
                 elif low in ("false", "no", "0", "fail", "fails"):
                     data[field_name] = False
+
+            # Literal[str, ...] field — normalise to lowercase so 'Hybrid' matches 'hybrid'
+            if get_origin(ann) is Literal and isinstance(v, str):
+                allowed = get_args(ann)
+                if all(isinstance(a, str) for a in allowed):
+                    low = v.strip().lower()
+                    if low in allowed:
+                        data[field_name] = low
         return data
 
 
@@ -208,6 +216,25 @@ class EconomicsOutput(LLMOutput):
     coca_estimate: str
     ltv_coca_ratio: float
     economics_gate_pass: bool
+
+    @field_validator("ltv_coca_ratio", mode="before")
+    @classmethod
+    def coerce_ratio(cls, v: Any) -> float:
+        if isinstance(v, (int, float)):
+            return float(v)
+        if isinstance(v, dict):
+            for key in ("external", "internal"):
+                val = v.get(key)
+                if val is not None:
+                    try:
+                        return float(val)
+                    except (TypeError, ValueError):
+                        continue
+            raise ValueError(f"ltv_coca_ratio dict has no numeric value: {v}")
+        try:
+            return float(v)
+        except (TypeError, ValueError):
+            raise ValueError(f"Cannot coerce ltv_coca_ratio to float: {v!r}")
     roi_months_internal: str = ""
     manual_process_cost_estimate: str = ""
     economics_score: int = Field(ge=0, le=100)
