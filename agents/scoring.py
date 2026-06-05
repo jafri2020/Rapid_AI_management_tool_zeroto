@@ -187,7 +187,7 @@ def compute(
     strategic_bet_flag = (
         max(composite_a, composite_b) >= config.strategic_bet_min_score
         and triage.secret.score == 4
-        and triage.timing.score >= 3
+        and triage.timing.score >= config.strategic_bet_timing_min
     )
 
     # ── Weakest / Strongest dimension ────────────────────────────────────────

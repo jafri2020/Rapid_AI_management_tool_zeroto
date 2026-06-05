@@ -24,29 +24,38 @@ class Storage:
         conn.row_factory = sqlite3.Row
         return conn
 
+    def _close(self, conn: sqlite3.Connection):
+        # The shared in-memory connection must stay open for the lifetime of
+        # the Storage; only per-call file connections are closed.
+        if self._memory_conn is None:
+            conn.close()
+
     def _init_db(self):
         conn = self._connect()
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS validations (
-                id          TEXT PRIMARY KEY,
-                title       TEXT NOT NULL,
-                submitter   TEXT,
-                track       TEXT,
-                stage       TEXT,
-                score_a     INTEGER,
-                score_b     INTEGER,
-                decision_a  TEXT,
-                decision_b  TEXT,
-                triage_score INTEGER,
-                quick_win   INTEGER DEFAULT 0,
-                strategic_bet INTEGER DEFAULT 0,
-                created_at  TEXT,
-                full_json   TEXT NOT NULL
+        try:
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS validations (
+                    id          TEXT PRIMARY KEY,
+                    title       TEXT NOT NULL,
+                    submitter   TEXT,
+                    track       TEXT,
+                    stage       TEXT,
+                    score_a     INTEGER,
+                    score_b     INTEGER,
+                    decision_a  TEXT,
+                    decision_b  TEXT,
+                    triage_score INTEGER,
+                    quick_win   INTEGER DEFAULT 0,
+                    strategic_bet INTEGER DEFAULT 0,
+                    created_at  TEXT,
+                    full_json   TEXT NOT NULL
+                )
+                """
             )
-            """
-        )
-        conn.commit()
+            conn.commit()
+        finally:
+            self._close(conn)
 
     def save(self, result: ValidationResult) -> str:
         if not result.id:
@@ -60,7 +69,8 @@ class Storage:
         quick_win = int(result.scores.quick_win_flag) if result.scores else 0
         strategic_bet = int(result.scores.strategic_bet_flag) if result.scores else 0
 
-        with self._connect() as conn:
+        conn = self._connect()
+        try:
             conn.execute(
                 """
                 INSERT OR REPLACE INTO validations
@@ -87,19 +97,25 @@ class Storage:
                 ),
             )
             conn.commit()
+        finally:
+            self._close(conn)
         return result.id
 
     def load(self, idea_id: str) -> Optional[ValidationResult]:
-        with self._connect() as conn:
+        conn = self._connect()
+        try:
             row = conn.execute(
                 "SELECT full_json FROM validations WHERE id = ?", (idea_id,)
             ).fetchone()
+        finally:
+            self._close(conn)
         if row:
             return ValidationResult.model_validate_json(row["full_json"])
         return None
 
     def list_all(self) -> List[dict]:
-        with self._connect() as conn:
+        conn = self._connect()
+        try:
             rows = conn.execute(
                 """
                 SELECT id, title, submitter, track, stage,
@@ -108,9 +124,14 @@ class Storage:
                 FROM validations ORDER BY created_at DESC
                 """
             ).fetchall()
+        finally:
+            self._close(conn)
         return [dict(r) for r in rows]
 
     def delete(self, idea_id: str):
-        with self._connect() as conn:
+        conn = self._connect()
+        try:
             conn.execute("DELETE FROM validations WHERE id = ?", (idea_id,))
             conn.commit()
+        finally:
+            self._close(conn)

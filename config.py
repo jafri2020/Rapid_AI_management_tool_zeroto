@@ -58,6 +58,7 @@ class Config:
 
     # Strategic Bet flag: score >= 55 AND secret >= 4 AND timing >= 4
     strategic_bet_min_score: int = 55
+    strategic_bet_timing_min: int = 4
 
 
 config = Config()
