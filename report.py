@@ -86,7 +86,9 @@ def generate(result: ValidationResult) -> str:
         lines.append(f"  Summary: {t.triage_summary}")
         lines.append("")
 
-        if t.total_score < 8:
+        # Mirror the pipeline's own decision rather than re-deriving a threshold:
+        # it sets stage_reached="triage_rejected" iff it skipped DE research.
+        if result.stage_reached == "triage_rejected":
             lines.append("⛔ BELOW TRIAGE GATE — DE research not run.")
             lines.append("=" * 72)
             return "\n".join(lines)

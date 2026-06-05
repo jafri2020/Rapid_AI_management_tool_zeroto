@@ -12,17 +12,25 @@ class Config:
 
     # Kimi (Moonshot AI) — OpenAI-compatible
     kimi_api_key: str = field(default_factory=lambda: os.getenv("KIMI_API_KEY", ""))
-    kimi_base_url: str = "https://api.moonshot.cn/v1"
-    model: str = field(default_factory=lambda: os.getenv("MODEL", "moonshot-v1-32k"))
+    kimi_base_url: str = "https://api.moonshot.ai/v1"
+    model: str = field(default_factory=lambda: os.getenv("MODEL", "kimi-k2.6"))
 
     # Ollama — local models
     ollama_base_url: str = field(default_factory=lambda: os.getenv("OLLAMA_BASE_URL", "http://localhost:11434"))
-    ollama_model: str = field(default_factory=lambda: os.getenv("OLLAMA_MODEL", "llama3.1:8b"))
+    ollama_model: str = field(default_factory=lambda: os.getenv("OLLAMA_MODEL", "qwen3:8b"))
 
     # Token budgets per pipeline step
-    reason_max_tokens: int = 4096
-    generate_max_tokens: int = 2048
-    critique_max_tokens: int = 512
+    # kimi-k2 is a thinking model — internal reasoning tokens consume the budget before
+    # the visible output is written. 8192 was exhausted entirely by think-blocks.
+    # GENERATE has the same problem: reasoning-heavy agents (economics, scale) burned
+    # through 4096 on think-blocks before emitting any JSON → finish_reason=length.
+    reason_max_tokens: int = 16000
+    generate_max_tokens: int = 16000
+    critique_max_tokens: int = 4096
+
+    # Ollama: disable built-in thinking (qwen3 <think> blocks eat the token budget;
+    # our reason prompts already do explicit step-by-step analysis)
+    ollama_disable_thinking: bool = field(default_factory=lambda: os.getenv("OLLAMA_DISABLE_THINKING", "true").lower() == "true")
 
     # Search
     search_results_per_query: int = 5
@@ -36,7 +44,7 @@ class Config:
     db_path: str = field(default_factory=lambda: os.getenv("DB_PATH", "idea_engine.db"))
 
     # Gate thresholds
-    triage_gate_min: int = 8          # out of 20 — below this, skip DE research
+    triage_gate_min: int = 3          # out of 20 — below this, skip DE research
     ltv_coca_min_ratio: float = 3.0   # hard gate: external score capped at 55 if below
     data_readiness_floor: int = 30    # feasibility dimension capped if data readiness < 30
 

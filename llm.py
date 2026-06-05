@@ -30,31 +30,63 @@ class LLMClient:
             return config.ollama_model
         return config.model  # kimi: moonshot-v1-8k / 32k / 128k
 
-    def complete(self, system: str, user: str, max_tokens: int = 2048) -> str:
+    # Hard ceiling for the length-retry escalation below — keeps a runaway
+    # think-loop from requesting an absurd budget on every doubling.
+    _MAX_TOKENS_CEILING = 32000
+
+    def _call(self, system: str, actual_user: str, max_tokens: int, temperature: float):
         client = self._get_client()
         try:
-            response = client.chat.completions.create(
+            return client.chat.completions.create(
                 model=self._model(),
                 max_tokens=max_tokens,
                 messages=[
                     {"role": "system", "content": system},
-                    {"role": "user", "content": user},
+                    {"role": "user", "content": actual_user},
                 ],
-                temperature=0.3,
+                temperature=temperature,
             )
         except Exception as e:
             raise RuntimeError(
                 f"LLM call failed (provider={config.llm_provider}, model={self._model()}): {type(e).__name__}: {e}"
             ) from e
 
-        if not response.choices:
-            raise RuntimeError(f"LLM returned no choices. Raw response: {response}")
-        content = response.choices[0].message.content
-        if not content:
-            finish_reason = getattr(response.choices[0], "finish_reason", "unknown")
-            raise RuntimeError(
-                f"LLM returned empty content. finish_reason={finish_reason}. "
-                f"This often means max_tokens was hit or the model refused. "
-                f"Provider={config.llm_provider}, model={self._model()}."
-            )
-        return content
+    def complete(self, system: str, user: str, max_tokens: int = 2048) -> str:
+        # qwen3 on Ollama emits large <think> blocks that eat the token budget;
+        # /no_think disables thinking at the prompt level (works across Ollama versions)
+        actual_user = (
+            f"/no_think\n{user}"
+            if config.llm_provider == "ollama" and config.ollama_disable_thinking
+            else user
+        )
+
+        # kimi-k2 only accepts temperature=1
+        temperature = 1 if config.llm_provider == "kimi" and self._model().startswith("kimi-k2") else 0.3
+
+        # Thinking models occasionally burn the whole budget on reasoning and return
+        # empty content with finish_reason=length. When that happens, retry with a
+        # doubled budget (up to the ceiling) before giving up. A non-empty-but-truncated
+        # response is returned as-is — downstream json_repair salvages partial JSON.
+        attempt_tokens = max_tokens
+        last_finish_reason = "unknown"
+        while True:
+            response = self._call(system, actual_user, attempt_tokens, temperature)
+
+            if not response.choices:
+                raise RuntimeError(f"LLM returned no choices. Raw response: {response}")
+            content = response.choices[0].message.content
+            if content:
+                return content
+
+            last_finish_reason = getattr(response.choices[0], "finish_reason", "unknown")
+            if last_finish_reason == "length" and attempt_tokens < self._MAX_TOKENS_CEILING:
+                attempt_tokens = min(attempt_tokens * 2, self._MAX_TOKENS_CEILING)
+                continue
+            break
+
+        raise RuntimeError(
+            f"LLM returned empty content after escalating to max_tokens={attempt_tokens}. "
+            f"finish_reason={last_finish_reason}. "
+            f"This often means the budget was exhausted by reasoning or the model refused. "
+            f"Provider={config.llm_provider}, model={self._model()}."
+        )

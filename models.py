@@ -105,6 +105,14 @@ class LLMOutput(BaseModel):
                     low = v.strip().lower()
                     if low in allowed:
                         data[field_name] = low
+                    else:
+                        # Models often emit prose for constrained fields
+                        # (e.g. "Vitamin disguised as a painkiller..." for vitamin|painkiller|both).
+                        # Recover the intended option as the allowed value appearing earliest
+                        # in the text. If none appears, leave v untouched so validation fails loudly.
+                        positions = [(low.find(a), a) for a in allowed if a in low]
+                        if positions:
+                            data[field_name] = min(positions)[1]
         return data
 
 

@@ -45,7 +45,7 @@ with st.sidebar:
             config.kimi_api_key = api_key
         config.model = st.selectbox(
             "Model",
-            ["moonshot-v1-32k", "moonshot-v1-128k", "moonshot-v1-8k"],
+            ["kimi-k2.6", "kimi-k2.5"],
             index=0,
             help="32k is the best balance. Use 128k for very long idea descriptions.",
         )
