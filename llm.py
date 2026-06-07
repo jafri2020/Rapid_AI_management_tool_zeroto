@@ -2,33 +2,36 @@ from openai import OpenAI
 from config import config
 
 
-def _kimi_client() -> OpenAI:
-    return OpenAI(api_key=config.kimi_api_key, base_url=config.kimi_base_url)
+def _kimi_client(cfg) -> OpenAI:
+    return OpenAI(api_key=cfg.kimi_api_key, base_url=cfg.kimi_base_url)
 
 
-def _ollama_client() -> OpenAI:
+def _ollama_client(cfg) -> OpenAI:
     # Ollama exposes an OpenAI-compatible endpoint at /v1
-    return OpenAI(api_key="ollama", base_url=f"{config.ollama_base_url}/v1")
+    return OpenAI(api_key="ollama", base_url=f"{cfg.ollama_base_url}/v1")
 
 
 class LLMClient:
-    def __init__(self):
+    def __init__(self, cfg=None):
+        # Per-run config snapshot; falls back to the global singleton so existing
+        # callers that don't pass one keep working.
+        self._cfg = cfg or config
         self._client: OpenAI | None = None
 
     def _get_client(self) -> OpenAI:
         if self._client is None:
-            if config.llm_provider == "kimi":
-                self._client = _kimi_client()
-            elif config.llm_provider == "ollama":
-                self._client = _ollama_client()
+            if self._cfg.llm_provider == "kimi":
+                self._client = _kimi_client(self._cfg)
+            elif self._cfg.llm_provider == "ollama":
+                self._client = _ollama_client(self._cfg)
             else:
-                raise ValueError(f"Unknown LLM provider: {config.llm_provider!r}. Use 'kimi' or 'ollama'.")
+                raise ValueError(f"Unknown LLM provider: {self._cfg.llm_provider!r}. Use 'kimi' or 'ollama'.")
         return self._client
 
     def _model(self) -> str:
-        if config.llm_provider == "ollama":
-            return config.ollama_model
-        return config.model  # kimi: moonshot-v1-8k / 32k / 128k
+        if self._cfg.llm_provider == "ollama":
+            return self._cfg.ollama_model
+        return self._cfg.model  # kimi: moonshot-v1-8k / 32k / 128k
 
     # Hard ceiling for the length-retry escalation below — keeps a runaway
     # think-loop from requesting an absurd budget on every doubling.
@@ -48,7 +51,7 @@ class LLMClient:
             )
         except Exception as e:
             raise RuntimeError(
-                f"LLM call failed (provider={config.llm_provider}, model={self._model()}): {type(e).__name__}: {e}"
+                f"LLM call failed (provider={self._cfg.llm_provider}, model={self._model()}): {type(e).__name__}: {e}"
             ) from e
 
     def complete(self, system: str, user: str, max_tokens: int = 2048) -> str:
@@ -56,12 +59,12 @@ class LLMClient:
         # /no_think disables thinking at the prompt level (works across Ollama versions)
         actual_user = (
             f"/no_think\n{user}"
-            if config.llm_provider == "ollama" and config.ollama_disable_thinking
+            if self._cfg.llm_provider == "ollama" and self._cfg.ollama_disable_thinking
             else user
         )
 
         # kimi-k2 only accepts temperature=1
-        temperature = 1 if config.llm_provider == "kimi" and self._model().startswith("kimi-k2") else 0.3
+        temperature = 1 if self._cfg.llm_provider == "kimi" and self._model().startswith("kimi-k2") else 0.3
 
         # Thinking models occasionally burn the whole budget on reasoning and return
         # empty content with finish_reason=length. When that happens, retry with a
@@ -88,5 +91,5 @@ class LLMClient:
             f"LLM returned empty content after escalating to max_tokens={attempt_tokens}. "
             f"finish_reason={last_finish_reason}. "
             f"This often means the budget was exhausted by reasoning or the model refused. "
-            f"Provider={config.llm_provider}, model={self._model()}."
+            f"Provider={self._cfg.llm_provider}, model={self._model()}."
         )

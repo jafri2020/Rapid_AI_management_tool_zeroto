@@ -8,7 +8,7 @@ from queue import Queue, Empty
 
 import streamlit as st
 
-from config import config
+from config import Config, config
 from models import IdeaInput, IdeaTrack, ValidationResult
 from pipeline import Pipeline
 from report import generate as generate_report
@@ -27,12 +27,20 @@ def get_storage() -> Storage:
     return Storage(config.db_path)
 
 
+# ── Per-session config ──────────────────────────────────────────────────────
+# Each browser session gets its own Config so concurrent users can pick different
+# providers/keys/models without clobbering one another through the module global.
+if "cfg" not in st.session_state:
+    st.session_state.cfg = Config()
+cfg = st.session_state.cfg
+
+
 # ── Sidebar: settings ─────────────────────────────────────────────────────────
 with st.sidebar:
     st.markdown("## ⚙️ Settings")
 
     provider = st.selectbox("LLM Provider", ["kimi", "ollama"], index=0)
-    config.llm_provider = provider
+    cfg.llm_provider = provider
 
     if provider == "kimi":
         api_key = st.text_input(
@@ -42,26 +50,26 @@ with st.sidebar:
             help="Get yours at platform.moonshot.cn. Or set KIMI_API_KEY env var.",
         )
         if api_key:
-            config.kimi_api_key = api_key
-        config.model = st.selectbox(
+            cfg.kimi_api_key = api_key
+        cfg.model = st.selectbox(
             "Model",
             ["kimi-k2.6", "kimi-k2.5"],
             index=0,
             help="32k is the best balance. Use 128k for very long idea descriptions.",
         )
     else:  # ollama
-        config.ollama_base_url = st.text_input("Ollama URL", value=config.ollama_base_url)
-        config.ollama_model = st.text_input(
+        cfg.ollama_base_url = st.text_input("Ollama URL", value=cfg.ollama_base_url)
+        cfg.ollama_model = st.text_input(
             "Ollama Model",
-            value=config.ollama_model,
+            value=cfg.ollama_model,
             help="e.g. llama3.1:8b, qwen2.5:14b, mistral:7b",
         )
 
     st.divider()
-    config.enable_search = st.toggle("Web Search", value=config.enable_search)
-    config.enable_critique = st.toggle("Critique Step", value=config.enable_critique)
+    cfg.enable_search = st.toggle("Web Search", value=cfg.enable_search)
+    cfg.enable_critique = st.toggle("Critique Step", value=cfg.enable_critique)
     st.divider()
-    st.caption(f"DB: `{config.db_path}`")
+    st.caption(f"DB: `{cfg.db_path}`")
 
 
 # ── Tabs ──────────────────────────────────────────────────────────────────────
@@ -108,7 +116,7 @@ with tab_submit:
     if submitted:
         if not title or not description:
             st.error("Title and description are required.")
-        elif config.llm_provider == "kimi" and not config.kimi_api_key:
+        elif cfg.llm_provider == "kimi" and not cfg.kimi_api_key:
             st.error("Kimi API key is required. Add it in the sidebar or set KIMI_API_KEY in your .env file.")
         else:
             idea = IdeaInput(
@@ -130,9 +138,13 @@ with tab_submit:
             def on_progress(msg: str):
                 progress_queue.put(msg)
 
+            # Snapshot the session config before spawning the worker thread — the
+            # thread must not touch st.session_state (no ScriptRunContext there).
+            run_cfg = cfg
+
             def run_pipeline():
                 storage = get_storage()
-                p = Pipeline(storage=storage, on_progress=on_progress)
+                p = Pipeline(storage=storage, on_progress=on_progress, cfg=run_cfg)
                 result = p.run(idea)
                 progress_queue.put(("__done__", result))
 

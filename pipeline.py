@@ -24,19 +24,27 @@ from storage import Storage
 
 
 class Pipeline:
-    def __init__(self, storage: Optional[Storage] = None, on_progress: Optional[Callable[[str], None]] = None):
-        self._llm = LLMClient()
-        self._search = SearchClient()
-        self._storage = storage or Storage(config.db_path)
+    def __init__(
+        self,
+        storage: Optional[Storage] = None,
+        on_progress: Optional[Callable[[str], None]] = None,
+        cfg=None,
+    ):
+        # Per-run config snapshot. Passing one keeps concurrent Streamlit sessions
+        # from clobbering each other via the shared global singleton.
+        self._cfg = cfg or config
+        self._llm = LLMClient(self._cfg)
+        self._search = SearchClient(self._cfg)
+        self._storage = storage or Storage(self._cfg.db_path)
         self._on_progress = on_progress or (lambda msg: print(f"[pipeline] {msg}"))
 
-        self._triage_agent = TriageAgent(self._llm, self._search)
-        self._customer_agent = CustomerAgent(self._llm, self._search)
-        self._value_prop_agent = ValuePropAgent(self._llm, self._search)
-        self._acquisition_agent = AcquisitionAgent(self._llm, self._search)
-        self._economics_agent = EconomicsAgent(self._llm, self._search)
-        self._feasibility_agent = FeasibilityAgent(self._llm, self._search)
-        self._scale_agent = ScaleAgent(self._llm, self._search)
+        self._triage_agent = TriageAgent(self._llm, self._search, self._cfg)
+        self._customer_agent = CustomerAgent(self._llm, self._search, self._cfg)
+        self._value_prop_agent = ValuePropAgent(self._llm, self._search, self._cfg)
+        self._acquisition_agent = AcquisitionAgent(self._llm, self._search, self._cfg)
+        self._economics_agent = EconomicsAgent(self._llm, self._search, self._cfg)
+        self._feasibility_agent = FeasibilityAgent(self._llm, self._search, self._cfg)
+        self._scale_agent = ScaleAgent(self._llm, self._search, self._cfg)
 
     def _progress(self, msg: str):
         self._on_progress(msg)
@@ -61,9 +69,9 @@ class Pipeline:
         )
 
         # ── Triage gate ───────────────────────────────────────────────────────
-        if triage.total_score < config.triage_gate_min:
+        if triage.total_score < self._cfg.triage_gate_min:
             self._progress(
-                f"Below triage gate ({triage.total_score} < {config.triage_gate_min}). "
+                f"Below triage gate ({triage.total_score} < {self._cfg.triage_gate_min}). "
                 "Skipping DE research."
             )
             result.stage_reached = "triage_rejected"
@@ -149,7 +157,7 @@ class Pipeline:
             self._progress("Scale agent failed — continuing.")
 
         # ── Stage 3: Scoring ──────────────────────────────────────────────────
-        self._progress("Computing composite scores...")
+        self._progress("Scoring: computing composite scores...")
         if (
             result.triage
             and result.customer

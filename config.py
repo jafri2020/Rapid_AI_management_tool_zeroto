@@ -44,7 +44,10 @@ class Config:
     db_path: str = field(default_factory=lambda: os.getenv("DB_PATH", "idea_engine.db"))
 
     # Gate thresholds
-    triage_gate_min: int = 3          # out of 20 — below this, skip DE research
+    # Out of 20 — below this, skip DE research. Aligned with the "park" floor in
+    # TriageOutput.recompute_total (>=5 park, <5 reject) so anything the triage
+    # step classifies as "reject" is gated out instead of burning the full pipeline.
+    triage_gate_min: int = 5
     ltv_coca_min_ratio: float = 3.0   # hard gate: external score capped at 55 if below
     data_readiness_floor: int = 30    # feasibility dimension capped if data readiness < 30
 

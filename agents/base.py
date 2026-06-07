@@ -26,17 +26,19 @@ Format:
 class BaseAgent:
     name: str = "BaseAgent"
 
-    def __init__(self, llm: LLMClient, search: SearchClient):
+    def __init__(self, llm: LLMClient, search: SearchClient, cfg=None):
         self.llm = llm
         self.search = search
+        # Per-run config snapshot; falls back to the global singleton.
+        self.cfg = cfg or config
 
     # ── LLM steps ────────────────────────────────────────────────────────────
 
     def _reason(self, system: str, user: str) -> str:
-        return self.llm.complete(system, user, max_tokens=config.reason_max_tokens)
+        return self.llm.complete(system, user, max_tokens=self.cfg.reason_max_tokens)
 
     def _generate(self, system: str, user: str) -> str:
-        return self.llm.complete(system, user, max_tokens=config.generate_max_tokens)
+        return self.llm.complete(system, user, max_tokens=self.cfg.generate_max_tokens)
 
     def _critique(self, system: str, output_text: str) -> str:
         prompt = (
@@ -44,7 +46,7 @@ class BaseAgent:
             "Flag anything that needs strengthening. Be specific.\n\n"
             f"Output to review:\n{output_text}"
         )
-        return self.llm.complete(system, prompt, max_tokens=config.critique_max_tokens)
+        return self.llm.complete(system, prompt, max_tokens=self.cfg.critique_max_tokens)
 
     # ── Search ────────────────────────────────────────────────────────────────
 
@@ -156,7 +158,7 @@ class BaseAgent:
         raw_output = self._generate(system, gen_prompt)
 
         # Step 4: Critique (log only)
-        if config.enable_critique:
+        if self.cfg.enable_critique:
             try:
                 self._critique(system, raw_output)
             except Exception:

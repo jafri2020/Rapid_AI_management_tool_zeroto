@@ -5,7 +5,9 @@ from config import config
 
 
 class SearchClient:
-    def __init__(self):
+    def __init__(self, cfg=None):
+        # Per-run config snapshot; falls back to the global singleton.
+        self._cfg = cfg or config
         self._ddgs = None
 
     def _get_ddgs(self):
@@ -15,9 +17,9 @@ class SearchClient:
         return self._ddgs
 
     def search(self, query: str, max_results: int | None = None) -> List[Dict]:
-        if not config.enable_search:
+        if not self._cfg.enable_search:
             return []
-        n = max_results or config.search_results_per_query
+        n = max_results or self._cfg.search_results_per_query
         results = []
         try:
             for r in self._get_ddgs().text(query, max_results=n):
@@ -28,7 +30,7 @@ class SearchClient:
                         "url": r.get("href", ""),
                     }
                 )
-            time.sleep(config.search_delay_seconds)
+            time.sleep(self._cfg.search_delay_seconds)
         except Exception as e:
             print(f"[search] '{query}': {e}")
         return results
