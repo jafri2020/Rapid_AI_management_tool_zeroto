@@ -32,9 +32,20 @@ class Config:
     # our reason prompts already do explicit step-by-step analysis)
     ollama_disable_thinking: bool = field(default_factory=lambda: os.getenv("OLLAMA_DISABLE_THINKING", "true").lower() == "true")
 
-    # Search
+    # Search — Tavily only (agent-grade results + extracted page content).
+    # No fallback provider: if TAVILY_API_KEY is unset or a call fails, the query
+    # returns nothing and the gap is logged.
+    tavily_api_key: str = field(default_factory=lambda: os.getenv("TAVILY_API_KEY", ""))
     search_results_per_query: int = 5
-    search_delay_seconds: float = 1.5
+    # Tavily depth: "basic" (cheaper, snippet-level) or "advanced" (richer extracts).
+    search_depth: str = field(default_factory=lambda: os.getenv("SEARCH_DEPTH", "advanced").lower())
+    # Recency window for results: one of day/week/month/year, or "" for no limit.
+    # Market data is time-sensitive, so default to the past year.
+    search_time_range: str = field(default_factory=lambda: os.getenv("SEARCH_TIME_RANGE", "year").lower())
+    # Cap per-result page content fed to the LLM so the prompt isn't drowned in noise.
+    search_max_content_chars: int = 2000
+    # Per-query network retries (exponential backoff) before giving up / falling back.
+    search_max_retries: int = 2
     enable_search: bool = field(default_factory=lambda: os.getenv("ENABLE_SEARCH", "true").lower() == "true")
 
     # Pipeline toggles
