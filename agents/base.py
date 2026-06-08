@@ -116,8 +116,9 @@ class BaseAgent:
             result = json_repair.repair_json(stripped, return_objects=True)
             if isinstance(result, dict):
                 return result
-        except Exception:
-            pass
+            print(f"[{self.name}] json_repair returned non-dict ({type(result).__name__}); cannot use.")
+        except Exception as e:
+            print(f"[{self.name}] json_repair fallback failed: {type(e).__name__}: {e}")
 
         raise ValueError(
             f"[{self.name}] Could not parse JSON from LLM output. "
@@ -157,12 +158,13 @@ class BaseAgent:
         )
         raw_output = self._generate(system, gen_prompt)
 
-        # Step 4: Critique (log only)
+        # Step 4: Critique (log only — not used to modify the output)
         if self.cfg.enable_critique:
             try:
-                self._critique(system, raw_output)
-            except Exception:
-                pass
+                critique = self._critique(system, raw_output)
+                print(f"[{self.name}] critique: {critique.strip()[:300]}")
+            except Exception as e:
+                print(f"[{self.name}] critique step failed (non-fatal): {type(e).__name__}: {e}")
 
         data = self._parse_json(raw_output)
         data["search_queries_used"] = queries

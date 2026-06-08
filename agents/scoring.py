@@ -128,12 +128,13 @@ def compute(
     adoption_score = int(z2o_adoption * 0.25 + de_adoption * 0.75)
 
     # ── Dimension 6: Strategic Leverage (10%) ────────────────────────────────
-    # Z2O: lazybones fit (40%) + timing (20%) — team fit + moment fit = leverage
-    # DE:  scale score (40%)
+    # Z2O: lazybones fit (50%) + timing (25%) — team fit + moment fit = leverage
+    # DE:  scale score (60%) + beachhead reuse bonus (40%)
     z2o_strategic = _t(triage.lazybones_fit.score) * 0.5 + _t(triage.timing.score) * 0.25
     # Bonus for multiple next beachheads (reuse potential)
     beachhead_bonus = min(len(scale.next_beachheads_external) * 5, 15)
     de_strategic = scale.scale_score * 0.6 + beachhead_bonus * 0.4
+    # Blend: 40% Z2O signal + 60% DE analysis
     strategic_leverage_score = int(z2o_strategic * 0.40 + de_strategic * 0.60)
 
     # ── Clamp all dimensions to 0-100 ────────────────────────────────────────
